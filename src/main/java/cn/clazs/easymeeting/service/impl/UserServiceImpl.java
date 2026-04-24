@@ -62,12 +62,6 @@ public class UserServiceImpl implements UserService {
             throw new BusinessException("账号已禁用");
         }
 
-        Long lastOffTime = userInfo.getLastOffTime();
-        Long lastLoginTime = userInfo.getLastLoginTime();
-        if (lastOffTime != null && lastLoginTime != null && lastOffTime <= lastLoginTime) {
-            throw new BusinessException("此账号已经在别处登录，请退出后再登录");
-        }
-
         // 获取token
         String token = JwtUtil.generateToken(userInfo.getUserId());
 
