@@ -318,17 +318,20 @@ const gridClass = computed(() => {
 // 设置视频元素引用
 function setVideoRef(userId: string, el: any) {
   if (el) {
-    videoRefs[userId] = el as HTMLVideoElement
-    // 确保流被正确绑定
+    const videoEl = el as HTMLVideoElement
+    videoRefs[userId] = videoEl
     const stream = videoStreams[userId]
     if (stream) {
-      (el as HTMLVideoElement).srcObject = stream
+      if (videoEl.srcObject !== stream) {
+        videoEl.srcObject = stream
+      }
     } else if (userId === userStore.userId) {
-      // 如果是自己但流还没准备好，尝试从 webRTCManager 获取
       const localStream = webRTCManager.getLocalStream()
       if (localStream) {
         videoStreams[userId] = localStream
-        ;(el as HTMLVideoElement).srcObject = localStream
+        if (videoEl.srcObject !== localStream) {
+          videoEl.srcObject = localStream
+        }
       }
     }
   }
@@ -813,7 +816,7 @@ function handleMeetingEnd(_message: WebSocketMessage) {
 function onRemoteStream(userId: string, stream: MediaStream) {
   console.log('Received remote stream for user:', userId, 'tracks:', stream.getTracks().length)
   
-  // 使用 Vue 的响应式方式设置流
+  const previousStream = videoStreams[userId]
   videoStreams[userId] = stream
   
   const hasVideo = webRTCManager.hasStreamVideo(stream)
@@ -827,15 +830,20 @@ function onRemoteStream(userId: string, stream: MediaStream) {
   
   nextTick(() => {
     if (videoRefs[userId]) {
-      videoRefs[userId]!.srcObject = stream
-      console.log('Set srcObject for user:', userId)
+      if (videoRefs[userId]!.srcObject !== stream) {
+        videoRefs[userId]!.srcObject = stream
+        console.log('Set srcObject for user:', userId)
+      } else if (previousStream === stream) {
+        console.log('Remote stream unchanged, skip rebinding for user:', userId)
+      }
     } else {
       console.log('Video ref not found for user:', userId, 'will retry...')
-      // 如果 ref 还没准备好，稍后重试
       setTimeout(() => {
         if (videoRefs[userId]) {
-          videoRefs[userId]!.srcObject = stream
-          console.log('Retry: Set srcObject for user:', userId)
+          if (videoRefs[userId]!.srcObject !== stream) {
+            videoRefs[userId]!.srcObject = stream
+            console.log('Retry: Set srcObject for user:', userId)
+          }
         } else {
           console.error('Video ref still not found after retry for user:', userId)
         }

@@ -44,6 +44,7 @@ export class WebRTCManager {
   private onStreamRemoved: StreamRemovedCallback | null = null
   private onConnectionStateChange: ConnectionStateCallback | null = null
   private renegotiationTimers: Map<string, number> = new Map()
+  private makingOffers: Map<string, boolean> = new Map()
   
   // 绑定的事件处理器（保存引用以便正确移除）
   private boundHandleOffer: (message: WebSocketMessage) => Promise<void>
@@ -235,16 +236,13 @@ export class WebRTCManager {
   createConnection(remoteUserId: string, addLocalTransceivers = true): RTCPeerConnection {
     console.log('Creating PeerConnection for:', remoteUserId, 'hasLocalStream:', !!this.localStream, 'addLocalTransceivers:', addLocalTransceivers)
     
-    // 如果已存在连接且状态良好，直接返回现有连接
     const existingPc = this.peerConnections.get(remoteUserId)
     if (existingPc) {
       const state = existingPc.connectionState
-      // 如果连接状态是 connecting, connected 或 new，复用现有连接
-      if (state === 'connecting' || state === 'connected' || state === 'new') {
+      if (state !== 'closed' && state !== 'failed') {
         console.log('Reusing existing connection with:', remoteUserId, 'state:', state)
         return existingPc
       }
-      // 否则关闭旧连接
       console.log('Closing stale connection with:', remoteUserId, 'state:', state)
       this.closeConnection(remoteUserId)
     }
@@ -282,13 +280,21 @@ export class WebRTCManager {
       
       if (event.streams && event.streams[0]) {
         const stream = event.streams[0]
+        const previousStream = this.remoteStreams.get(remoteUserId)
         this.remoteStreams.set(remoteUserId, stream)
         console.log('Stream id:', stream.id)
         console.log('Stream tracks:', stream.getTracks().map(t => `${t.kind}:${t.enabled}`))
         
         if (this.onRemoteStream) {
-          console.log('Calling onRemoteStream callback for:', remoteUserId)
-          this.onRemoteStream(remoteUserId, stream)
+          const shouldNotify =
+            previousStream !== stream ||
+            event.track.kind === 'video' ||
+            !previousStream?.getTracks().some(track => track.id === event.track.id)
+
+          if (shouldNotify) {
+            console.log('Calling onRemoteStream callback for:', remoteUserId)
+            this.onRemoteStream(remoteUserId, stream)
+          }
         } else {
           console.error('onRemoteStream callback is not set!')
         }
@@ -425,6 +431,10 @@ export class WebRTCManager {
     }
   }
 
+  private isPolitePeer(remoteUserId: string): boolean {
+    return this.userId > remoteUserId
+  }
+
   /**
    * 向指定用户发起连接（作为 Offer 方）
    * 即使没有本地流也会发起连接（recvonly 模式），确保能接收对方的视频
@@ -470,6 +480,7 @@ export class WebRTCManager {
     const pc = this.createConnection(remoteUserId, true)
     
     try {
+      this.makingOffers.set(remoteUserId, true)
       const offer = await pc.createOffer()
       await pc.setLocalDescription(offer)
       
@@ -485,6 +496,8 @@ export class WebRTCManager {
       })
     } catch (error) {
       console.error('Failed to create offer:', error)
+    } finally {
+      this.makingOffers.set(remoteUserId, false)
     }
   }
 
@@ -520,52 +533,32 @@ export class WebRTCManager {
       }
     }
     
-    // 检查是否已有连接
-    const existingPc = this.peerConnections.get(remoteUserId)
-    if (existingPc) {
-      const state = existingPc.connectionState
-      // 如果已经连接，检查是否需要处理重新协商
-      if (state === 'connected') {
-        // 如果是重新协商的 Offer（对方添加了新轨道），需要处理
-        console.log('Received offer on existing connected connection, handling renegotiation')
-        try {
-          await existingPc.setRemoteDescription(new RTCSessionDescription(message.messageContent))
-          await this.syncLocalTracksToConnection(existingPc)
-          const answer = await existingPc.createAnswer()
-          await existingPc.setLocalDescription(answer)
-          
-          console.log('Sending renegotiation answer to:', remoteUserId)
-          wsService.send({
-            messageSendToType: MessageSendToType.USER,
-            meetingId: this.meetingId,
-            messageType: MessageType.WEBRTC_ANSWER,
-            sendUserId: this.userId,
-            receiveUserId: remoteUserId,
-            messageContent: answer
-          })
-        } catch (error) {
-          console.error('Failed to handle renegotiation offer:', error)
-        }
-        return
-      }
-      // 如果正在连接中，可能是双方同时发起，使用 userId 比较决定谁让步
-      if (state === 'connecting' || state === 'new') {
-        // 如果我的 userId 更大，我让步，接受对方的 Offer
-        // 如果我的 userId 更小，忽略对方的 Offer，继续我的连接
-        if (this.userId < remoteUserId) {
-          console.log('Glare detected, my userId is smaller, ignoring offer from:', remoteUserId)
-          return
-        }
-        console.log('Glare detected, my userId is larger, accepting offer from:', remoteUserId)
-        // 关闭现有连接，接受对方的 Offer
-        this.closeConnection(remoteUserId)
-      }
-    }
-    
     const pc = this.createConnection(remoteUserId, false)
     
     try {
-      await pc.setRemoteDescription(new RTCSessionDescription(message.messageContent))
+      const offerDescription = new RTCSessionDescription(message.messageContent)
+      const offerCollision =
+        this.makingOffers.get(remoteUserId) === true ||
+        pc.signalingState !== 'stable'
+      const polite = this.isPolitePeer(remoteUserId)
+
+      if (offerCollision) {
+        if (!polite) {
+          console.log('Ignoring colliding offer from impolite side:', remoteUserId, 'state:', pc.signalingState)
+          return
+        }
+
+        if (pc.signalingState === 'have-local-offer') {
+          console.log('Rolling back local offer to accept remote offer from:', remoteUserId)
+          await pc.setLocalDescription({ type: 'rollback' })
+        } else if (pc.signalingState !== 'stable') {
+          console.log('Offer collision detected in non-stable state, scheduling retry for:', remoteUserId, 'state:', pc.signalingState)
+          this.scheduleRenegotiation(remoteUserId)
+          return
+        }
+      }
+
+      await pc.setRemoteDescription(offerDescription)
       await this.syncLocalTracksToConnection(pc)
       
       const answer = await pc.createAnswer()
@@ -641,6 +634,7 @@ export class WebRTCManager {
       
       // 创建新的 Offer
       console.log('Creating renegotiation offer...')
+      this.makingOffers.set(remoteUserId, true)
       const offer = await pc.createOffer()
       await pc.setLocalDescription(offer)
       
@@ -655,6 +649,8 @@ export class WebRTCManager {
       })
     } catch (error) {
       console.error('Failed to renegotiate connection:', error)
+    } finally {
+      this.makingOffers.set(remoteUserId, false)
     }
   }
 
@@ -682,6 +678,10 @@ export class WebRTCManager {
     const pc = this.peerConnections.get(remoteUserId)
     if (pc) {
       try {
+        if (pc.signalingState !== 'have-local-offer') {
+          console.log('Ignoring stale answer from:', remoteUserId, 'state:', pc.signalingState)
+          return
+        }
         await pc.setRemoteDescription(new RTCSessionDescription(message.messageContent))
       } catch (error) {
         console.error('Failed to set remote description:', error)
@@ -712,6 +712,12 @@ export class WebRTCManager {
   closeConnection(userId: string): void {
     const pc = this.peerConnections.get(userId)
     if (pc) {
+      const renegotiationTimer = this.renegotiationTimers.get(userId)
+      if (renegotiationTimer) {
+        clearTimeout(renegotiationTimer)
+        this.renegotiationTimers.delete(userId)
+      }
+      this.makingOffers.delete(userId)
       pc.close()
       this.peerConnections.delete(userId)
       this.remoteStreams.delete(userId)
