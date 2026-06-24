@@ -1,14 +1,8 @@
 -- =====================================================
--- EasyMeeting 数据库初始化脚本
+-- WeMeeting 数据库初始化脚本
 -- 适用于 MySQL 8.0+
+-- 注意：数据库由 docker-compose 的 MYSQL_DATABASE 环境变量自动创建
 -- =====================================================
-
--- 创建数据库
-CREATE DATABASE IF NOT EXISTS `easymeeting`
-DEFAULT CHARACTER SET utf8mb4
-COLLATE utf8mb4_unicode_ci;
-
-USE `easymeeting`;
 
 -- =====================================================
 -- 1. 用户信息表
@@ -254,9 +248,9 @@ DROP PROCEDURE IF EXISTS create_private_chat_message_tables;
 -- 密码: 123456 (MD5: e10adc3949ba59abbe56e057f20f883e)
 -- =====================================================
 -- INSERT INTO `user_info` (`user_id`, `email`, `nick_name`, `sex`, `password`, `status`, `meeting_no`)
--- VALUES ('100000000001', 'admin@easymeeting.com', '管理员', 2, 'e10adc3949ba59abbe56e057f20f883e', 1, '1000000001');
+-- VALUES ('100000000001', 'admin@wemeeting.com', '管理员', 2, 'e10adc3949ba59abbe56e057f20f883e', 1, '1000000001');
 
 -- =====================================================
 -- 初始化完成
 -- =====================================================
-SELECT 'EasyMeeting 数据库初始化完成！' AS message;
+SELECT 'WeMeeting 数据库初始化完成！' AS message;

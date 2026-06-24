@@ -1,0 +1,26 @@
+# Git
+.git
+.gitignore
+
+# IDE
+.idea
+*.iml
+.vscode
+
+# 前端（后端镜像不需要）
+frontend
+
+# 数据目录
+data
+
+# 日志
+logs
+*.log
+
+# 环境变量（敏感信息）
+.env
+.env.*
+
+# Docker 自身
+docker-compose.yml
+*.md

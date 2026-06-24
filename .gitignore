@@ -35,3 +35,6 @@ build/
 .vscode/
 
 **/rebel.xml
+
+# Docker volumes
+data/

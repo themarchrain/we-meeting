@@ -1,0 +1,114 @@
+version: '3.8'
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: wemeeting-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./data/mysql:/var/lib/mysql
+      - ./init-sql:/docker-entrypoint-initdb.d
+    command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    networks:
+      - wemeeting-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: wemeeting-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: >
+      sh -c 'if [ -n "$REDIS_PASSWORD" ]; then
+        redis-server --appendonly yes --requirepass $REDIS_PASSWORD;
+      else
+        redis-server --appendonly yes;
+      fi'
+    volumes:
+      - ./data/redis:/data
+    networks:
+      - wemeeting-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: wemeeting-rabbitmq
+    restart: unless-stopped
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    volumes:
+      - ./data/rabbitmq:/var/lib/rabbitmq
+    networks:
+      - wemeeting-network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: wemeeting-backend
+    restart: unless-stopped
+    ports:
+      - "6060:6060"
+      - "6061:6061"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE}?serverTimezone=GMT%2B8&useUnicode=true&characterEncoding=utf8&autoReconnect=true&allowMultiQueries=true
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: ${REDIS_PORT}
+      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD}
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: ${RABBITMQ_PORT}
+      SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USERNAME}
+      SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      MESSAGING_HANDLE_CHANNEL: ${MESSAGE_CHANNEL}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - wemeeting-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: wemeeting-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - wemeeting-network
+
+networks:
+  wemeeting-network:
+    driver: bridge
+
