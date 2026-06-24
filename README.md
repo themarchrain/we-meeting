@@ -4,15 +4,23 @@ WeMeeting 是一个高性能、可扩展的视频会议系统后端，基于 **S
 
 ## 目录
 
-- [核心特性](#核心特性)
-- [演示截图](#演示截图)
-- [系统架构](#系统架构)
-- [技术栈](#技术栈)
-- [消息广播机制](#消息广播机制)
-- [消息分表策略](#消息分表策略)
-- [业务流程](#业务流程)
-- [快速开始](#快速开始)
-- [如何编辑架构图](#如何编辑架构图)
+- [WeMeeting](#wemeeting)
+  - [目录](#目录)
+  - [核心特性](#核心特性)
+  - [演示截图](#演示截图)
+  - [系统架构](#系统架构)
+    - [后端模块划分](#后端模块划分)
+  - [技术栈](#技术栈)
+  - [消息广播机制](#消息广播机制)
+  - [消息分表策略](#消息分表策略)
+    - [核心设计](#核心设计)
+  - [业务流程](#业务流程)
+    - [快速会议流程](#快速会议流程)
+  - [快速开始](#快速开始)
+    - [前置要求](#前置要求)
+    - [Docker 部署（推荐）](#docker-部署推荐)
+    - [本地启动](#本地启动)
+  - [如何编辑架构图](#如何编辑架构图)
 
 ## 核心特性
 
@@ -117,32 +125,70 @@ spring:
 
 ### 前置要求
 
+> 若使用 Docker 部署可以忽略如下要求，本地有 Docker 即可。
+
 - JDK 21+
 - MySQL 8.0+
 - Redis
 - RabbitMQ (可选，如果使用 RabbitMQ 模式)
 
-### 部署步骤
+### Docker 部署（推荐）
 
 1.  **克隆项目**
-    
+
     ```bash
-    git clone https://github.com/Nahiyi/we-meeting.git
+    git clone https://github.com/themarchrain/we-meeting.git
+    cd we-meeting
     ```
-    
+
+2.  **配置环境变量**
+
+    ```bash
+    cp .env.example .env
+    # 按需修改 .env 文件中的配置（数据库密码、Redis 等）
+    ```
+
+3.  **构建并启动**
+
+    ```bash
+    # 国内环境（使用阿里云 Maven 镜像加速）
+    ./build-cn.sh
+
+    # 或者：有海外环境则使用
+    ./build.sh
+
+    # 启动所有服务
+    ./run.sh
+    ```
+
+4.  **访问服务**
+
+    - 前端: http://localhost
+    - 后端 API: http://localhost/api
+    - WebSocket: ws://localhost/ws
+    - RabbitMQ 管理: http://localhost:15672
+
+### 本地启动
+
+1.  **克隆项目**
+
+    ```bash
+    git clone https://github.com/themarchrain/we-meeting.git
+    ```
+
 2.  **初始化数据库**
-    
-    - 创建数据库 `easymeeting`。
-    - 导入 SQL 脚本。
-    
+
+    - 创建数据库 `wemeeting`。
+    - 导入 `init-sql/origin.sql` 脚本。
+
 3.  **修改配置**
-    
+
     - 打开 `src/main/resources/application.yml`。
     - 配置数据库连接、Redis 地址。
     - 根据需要选择 `messaging.handle.channel`。
-    
+
 4.  **运行服务**
-    
+
     - 运行 `EasymeetingApplication.java`。
     - 服务默认启动在 `6060` (Web) 和 `6061` (WebSocket) 端口。
 
