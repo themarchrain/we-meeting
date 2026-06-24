@@ -1,0 +1,25 @@
+FROM maven:3.9-eclipse-temurin-21-alpine AS builder
+WORKDIR /app
+
+# 使用阿里云 Maven 镜像
+COPY settings.xml .
+COPY pom.xml .
+RUN mvn dependency:go-offline -s settings.xml -B
+
+COPY src ./src
+RUN mvn package -s settings.xml -DskipTests -B
+
+FROM eclipse-temurin:21-jre-alpine
+WORKDIR /app
+
+# 创建日志目录
+RUN mkdir -p /app/logs
+
+# 从构建阶段复制打包好的 jar
+COPY --from=builder /app/target/*.jar app.jar
+
+# 暴露 HTTP 和 WebSocket 端口
+EXPOSE 6060 6061
+
+# 启动应用（配置通过 docker-compose 环境变量注入）
+ENTRYPOINT ["java", "-jar", "app.jar"]

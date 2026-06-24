@@ -73,6 +73,8 @@ services:
     ports:
       - "6060:6060"
       - "6061:6061"
+    volumes:
+      - ./data/logs:/app/logs
     environment:
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE}?serverTimezone=GMT%2B8&useUnicode=true&characterEncoding=utf8&autoReconnect=true&allowMultiQueries=true
       SPRING_DATASOURCE_USERNAME: root
